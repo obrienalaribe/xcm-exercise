@@ -16,12 +16,14 @@
 
 #[cfg(test)]
 mod tests {
+	use std::ops::Mul;
+
 	use codec::Encode;
 	use frame_support::assert_ok;
 	use xcm::{latest::prelude::*, VersionedXcm};
 	use xcm_simulator_for_exercises::{
 		parachain, parachain_xcm_executed_successfully, MockNet, ParaA, ParachainPalletBalances,
-		ParachainPalletXcm, TestExt, ALICE, BOB, INITIAL_BALANCE,
+		ParachainPalletXcm, TestExt, ALICE, BOB, INITIAL_BALANCE, RelayChainPalletBalances,
 	};
 
 	#[test]
@@ -70,9 +72,34 @@ mod tests {
 		// 1.) Who is buying the execution?
 		// 2.) How to verify we executed this instruction correctly?
 		let weight = 1_000_000_000_000u64;
-
+		let relative_location = MultiLocation { parents: 1, interior: Here };
+		let withdraw_amount = 10u64;
+		let multi_asset: MultiAsset = MultiAsset { id: AssetId::Concrete(relative_location.clone()), fun: Fungibility::Fungible(1) };
 		ParaA::execute_with(|| {
 			// Insert here the appropriate code to execute the XCM message asked for.
+			let msg: Xcm<parachain::RuntimeCall> = Xcm(
+				vec![
+					WithdrawAsset((relative_location.clone(), withdraw_amount as u128).into()),
+					BuyExecution { 
+						fees: multi_asset.clone(), 
+						weight_limit: Limited(weight)
+					},
+					DepositAsset {
+						assets: multi_asset.into(),
+						max_assets: 100,
+						beneficiary: MultiLocation { parents: 0, interior: X1(Junction::AccountId32 { network: NetworkId::Any, id: BOB.into() }) }
+					}
+				]
+			);
+
+			assert_ok!(ParachainPalletXcm::execute(
+				parachain::RuntimeOrigin::signed(ALICE), 
+				Box::new(VersionedXcm::V2(msg.into())), 
+				100_000_000_000
+			));
+
+			// Assert XCM message executed successfully
+			assert!(parachain_xcm_executed_successfully());
 		});
 	}
 
@@ -84,9 +111,40 @@ mod tests {
 		// Send 100 from Alice to Bob from a parachain locally and verify it.
 		// 1.) Where to send it from?
 		// 2.) how to verify Bob received the funds?
-
+		let send_amount: u128 = 100;
 		ParaA::execute_with(|| {
 			// Insert here the appropriate code to execute the XCM message asked for.
+			let message: Xcm<parachain::RuntimeCall> = Xcm(
+				vec![
+					TransferAsset { 
+						assets: (MultiLocation{parents: 1, interior: Here}, send_amount).into(), 
+						beneficiary: MultiLocation { 
+							parents: 0, 
+							interior: X1(Junction::AccountId32 { network: NetworkId::Any, id: BOB.into() }) 
+						} 
+					}
+				]
+			);
+			assert_ok!(
+				ParachainPalletXcm::execute(
+					parachain::RuntimeOrigin::signed(ALICE), 
+					Box::new(VersionedXcm::V2(message.into())), 
+					100_000_000_000
+				)
+			);
+
+			// Assert XCM message executed successfully
+			assert!(parachain_xcm_executed_successfully());
+
+			assert_eq!(
+				ParachainPalletBalances::free_balance(ALICE),
+				INITIAL_BALANCE - send_amount
+			);
+
+			assert_eq!(
+				ParachainPalletBalances::free_balance(BOB),
+				send_amount
+			)
 		});
 	}
 
