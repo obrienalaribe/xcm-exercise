@@ -19,3 +19,4 @@ Finally the `decl_test_network` macro allows you to create a network with the pa
 
 You can take a look at the [main example](xcm-related-code/xcm-simulator-for-exercises/src/lib.rs)
 for the exercises to get a sense on how the simulator works.
+# xcm-exercise
